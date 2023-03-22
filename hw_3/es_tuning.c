@@ -28,19 +28,19 @@
 
 // ------- Global EC Parameters -------
 
-const int LAMBDA_SIZE       = 100;      // Size of child "population" (# of offspring per generation)
-const int MU_SIZE           = 15;       // Size of ongoing/maintained parent population
-const int GENOME_LEN        = 2;        // # of floating pt genes *NOT including sigmas*
-const double MUTATION_RATE  = 0.5;      // Mutation rate parameter for sigmas ("Tau")
-const double CROSSOVER_RATE = 0.0;
-const int GENERATION_COUNT  = 1000;     // Max # of generational cycles
+// const int LAMBDA_SIZE       = 100;      // Size of child "population" (# of offspring per generation)
+// const int MU_SIZE           = 15;       // Size of ongoing/maintained parent population
+// const int GENOME_LEN        = 2;        // # of floating pt genes *NOT including sigmas*
+// const double MUTATION_RATE  = 0.5;      // Mutation rate parameter for sigmas ("Tau")
+// const double CROSSOVER_RATE = 0.0;
+// const int GENERATION_COUNT  = 1000;     // Max # of generational cycles
 
-// NOTE: for simplicity I'm using the same range constants for each (both, in this case) genes
-const double RANGE_MIN      = -10.0;    // Min value of each gene
-const double RANGE_MAX      = 10.0;     // Min value of each gene
+// // NOTE: for simplicity I'm using the same range constants for each (both, in this case) genes
+// const double RANGE_MIN      = -10.0;    // Min value of each gene
+// const double RANGE_MAX      = 10.0;     // Min value of each gene
 
-// This parameter keeps any sigma from getting so close to 0 that there's effectively no mutation
-const double SIGMA_MIN      = 0.00001;
+// // This parameter keeps any sigma from getting so close to 0 that there's effectively no mutation
+// const double SIGMA_MIN      = 0.00001;
 
 
 // ------- Data Structures and Type Definitions -------
@@ -177,6 +177,7 @@ void ES_Population_Metrics(population_t *population, double *metrics) {
 
     // find max fitness score and sum of all scores for avg calc
     double max_fitness = ((*population).member[0]).fitness;
+    champ_id = 0;
 	for (m_count = 0; m_count < (*population).member_count; m_count++) {
         sum_of_fitness += ((*population).member[m_count]).fitness;
 
@@ -197,20 +198,21 @@ void ES_Population_Metrics(population_t *population, double *metrics) {
     metrics[4] = (*population).member[champ_id].gene[1];
 
     // Calculate furthest distance between members as diversity metric
+    // DISABLED FOR PERFORMANCE WHILE PARAMETER TUNING
     metrics[2] = 0.0;
-    for (m_count = 0; m_count < (*population).member_count; m_count++) {
-        x1 = (*population).member[m_count].gene[0];
-        y1 = (*population).member[m_count].gene[1];
+    // for (m_count = 0; m_count < (*population).member_count; m_count++) {
+    //     x1 = (*population).member[m_count].gene[0];
+    //     y1 = (*population).member[m_count].gene[1];
         
-        for (m_inner = m_count+1; m_inner < (*population).member_count; m_inner++) {
-            x2 = (*population).member[m_inner].gene[0];
-            y2 = (*population).member[m_inner].gene[1];
-            distance = sqrt(pow(x1 - x2, 2.0) + pow(y1 - y2, 2.0));
+    //     for (m_inner = m_count+1; m_inner < (*population).member_count; m_inner++) {
+    //         x2 = (*population).member[m_inner].gene[0];
+    //         y2 = (*population).member[m_inner].gene[1];
+    //         distance = sqrt(pow(x1 - x2, 2.0) + pow(y1 - y2, 2.0));
 
-            // Store largest distance
-            if (distance > metrics[2]) metrics[2] = distance;
-        }
-    }
+    //         // Store largest distance
+    //         if (distance > metrics[2]) metrics[2] = distance;
+    //     }
+    // }
 }
 
 // qsort comparison function for population sorting by fitness
@@ -223,26 +225,26 @@ int ES_Qsort_Comp(const void *a, const void *b) {
 // ------- Population Initialization Routines -------
 
 // set *already allocated* genome to random set of doubles in search range
-void ES_Genome_Init(genome_t *genome, RNG *rng) {
+void ES_Genome_Init(genome_t *genome, double range_min, double range_max, double mutation_rate, RNG *rng) {
     int gene_count;
     for (gene_count=0; gene_count < (*genome).genome_len; gene_count++) {
         // set each allele to uniform random val between RANGE_MIN and RANGE_MAX (random resetting)
         if(gene_count < (*genome).genome_len / 2) {
-            (*genome).gene[gene_count] = rng_uniform01(rng) * (RANGE_MAX - RANGE_MIN) + RANGE_MIN;
+            (*genome).gene[gene_count] = rng_uniform01(rng) * (range_max - range_min) + range_min;
         }
         // set each sigma to random val with lognormal distribution
         else {
-            (*genome).gene[gene_count] = exp(MUTATION_RATE * rng_gaussian(rng, 0, 1));    // textbook formula 4.2
+            (*genome).gene[gene_count] = exp(mutation_rate * rng_gaussian(rng, 0, 1));    // textbook formula 4.2
         }
     }
     (*genome).fitness = 0.0;
 }
 
 // randomize all genomes in population
-void ES_Population_Init(population_t *population, RNG *rng) {
+void ES_Population_Init(population_t *population, double range_min, double range_max, double mutation_rate, RNG *rng) {
     int m_count;
     for (m_count=0; m_count < (*population).member_count; m_count++) {
-        ES_Genome_Init(&((*population).member[m_count]), rng);
+        ES_Genome_Init(&((*population).member[m_count]), range_min, range_max, mutation_rate, rng);
     }
 }
 
@@ -256,7 +258,7 @@ void ES_Population_Init(population_t *population, RNG *rng) {
 // ------- Genome Variation Functions -------
 
 // mutate each sigma, then mutate each gene based on respective sigma value
-void ES_Genome_Mutate(genome_t *genome, double mutation_rate, RNG *rng) {
+void ES_Genome_Mutate(genome_t *genome, double mutation_rate, double range_min, double range_max, double sigma_min, RNG *rng) {
     int gene_count;
     double sigma_prime;
     double sigma_i;
@@ -267,14 +269,18 @@ void ES_Genome_Mutate(genome_t *genome, double mutation_rate, RNG *rng) {
             // each sigma based on a single Tau (i.e. textbook equation 4.2) 
             // rather than the more "granular" equation 4.4.
             sigma_prime = (*genome).gene[gene_count] * exp(mutation_rate * rng_gaussian(rng, 0, 1));
-            if (sigma_prime < SIGMA_MIN)
-                sigma_prime = SIGMA_MIN;
+            if (sigma_prime < sigma_min)
+                sigma_prime = sigma_min;
             (*genome).gene[gene_count] = sigma_prime;
         }
         // Now mutate each allele based on its individual (already mutated) sigma
         else {
             sigma_i = (*genome).gene[gene_count + (*genome).genome_len / 2];
             (*genome).gene[gene_count] += sigma_i * rng_gaussian(rng, 0, 1);
+
+            // Bound genes to defined range
+            if ((*genome).gene[gene_count] > range_max) (*genome).gene[gene_count] = range_max;
+            else if ((*genome).gene[gene_count] < range_min) (*genome).gene[gene_count] = range_min;
         }
     } 
 }
@@ -308,22 +314,28 @@ void ES_Genome_Recombo(genome_t *parent_genome_1, genome_t *parent_genome_2, RNG
 }
 
 // apply mutation to every genome in population
-void ES_Population_Mutate(population_t *population, double mutation_rate, RNG *rng) {
+void ES_Population_Mutate(population_t *population, double mutation_rate, double range_min, double range_max, double sigma_min, RNG *rng) {
     // TODO: add error checking?
     int m_count;
 	
     // loop through every member of population and apply ES_Genome_Mutate
     for (m_count = 0; m_count < (*population).member_count; m_count++) {
-        ES_Genome_Mutate(&((*population).member[m_count]), mutation_rate, rng);
+        ES_Genome_Mutate(&((*population).member[m_count]), mutation_rate, range_min, range_max, sigma_min, rng);
     }
 }
 
-void ES_Population_Make_New_Generation(population_t *old_population, 
-                                        population_t *new_population,
-                                        double       mutation_rate,
-                                        double       crossover_rate,
-                                        double       *metrics,
-										RNG          *rng) {
+void ES_Population_Make_New_Generation(population_t     *old_population, 
+                                        population_t    *new_population,
+                                        int             genome_len,
+                                        double          mutation_rate,
+                                        double          crossover_rate,
+                                        double          mu_size,
+                                        double          lambda_size,
+                                        double          range_min,
+                                        double          range_max,
+                                        double          sigma_min,
+                                        double          *metrics,
+										RNG             *rng) {
 
     double sum_of_fitness_scores;
     double max_raw_fitness, min_raw_fitness;
@@ -338,13 +350,13 @@ void ES_Population_Make_New_Generation(population_t *old_population,
     population_t selection_pool;
 
     // Malloc temp population to hold Mu + Lambda
-    ES_Population_Malloc(&selection_pool, (MU_SIZE + LAMBDA_SIZE), (GENOME_LEN * 2));
+    ES_Population_Malloc(&selection_pool, (mu_size + lambda_size), (genome_len * 2));
 
     // Malloc array for rank order PDF/CDF construction
-    rank = (double *)malloc(sizeof(double)*(MU_SIZE + LAMBDA_SIZE));
+    rank = (double *)malloc(sizeof(double)*(mu_size + lambda_size));
 
     // Copy parent population into selection pool
-    for (m_count = 0; m_count < MU_SIZE; m_count++) {
+    for (m_count = 0; m_count < mu_size; m_count++) {
         ES_Genome_Copy(&((*old_population).member[m_count]), &(selection_pool.member[m_count]));
     }
 
@@ -354,7 +366,7 @@ void ES_Population_Make_New_Generation(population_t *old_population,
     // that for every loop iteration but the first/last we overwrite a child we already generated.
     // This is pretty memory inefficient but allows the use of odd population sizes without a bunch
     // of conditionals.]
-    for (; m_count < (MU_SIZE + LAMBDA_SIZE)-1; m_count++) {
+    for (; m_count < (mu_size + lambda_size)-1; m_count++) {
         // Uniform random selection of two parents
         parent_one_index = (int)floor(rng_uniform(rng, 0.0, (double)(*old_population).member_count));
         parent_two_index = (int)floor(rng_uniform(rng, 0.0, (double)(*old_population).member_count));
@@ -364,8 +376,8 @@ void ES_Population_Make_New_Generation(population_t *old_population,
         ES_Genome_Copy(&((*old_population).member[parent_two_index]), &(selection_pool.member[m_count+1]));
 
         // Mutate the children
-        ES_Genome_Mutate(&(selection_pool.member[m_count]), mutation_rate, rng);
-        ES_Genome_Mutate(&(selection_pool.member[m_count+1]), mutation_rate, rng);
+        ES_Genome_Mutate(&(selection_pool.member[m_count]), mutation_rate, range_min, range_max, sigma_min, rng);
+        ES_Genome_Mutate(&(selection_pool.member[m_count+1]), mutation_rate, range_min, range_max, sigma_min, rng);
 
         // Recombine the two generated children
         if(rng_uniform01(rng) < crossover_rate) {
@@ -404,6 +416,10 @@ void ES_Population_Make_New_Generation(population_t *old_population,
         while (rank[parent_one_index] < die_roll) parent_one_index++;
         ES_Genome_Copy(&(selection_pool.member[parent_one_index]), &((*new_population).member[m_count]));
     }
+
+    // Free memory
+    ES_Population_Free(&selection_pool);
+    free(rank);
 }
 
 
@@ -431,7 +447,7 @@ double ES_Himmelblau(genome_t *genome) {
 
 // wrapper for desired fitness function
 double ES_Fitness_Function(genome_t *genome) {
-    return ES_Himmelblau(genome);
+    return ES_Rosenbrock(genome);
 }
 
 // apply fitness function wrapped by ES_Fitness_Function to whole population
@@ -446,11 +462,44 @@ void ES_Population_Compute_Fitness(population_t *population) {
 // -----------------------------------------------
 
 int main() {
+
+    // ------- Global EC Parameters -------
+
+    int lambda_size         = 100;      // Size of child "population" (# of offspring per generation)
+    int mu_size             = 15;       // Size of ongoing/maintained parent population
+    int genome_len          = 2;        // # of floating pt genes *NOT including sigmas*
+    double mutation_rate    = 0.5;      // Mutation rate parameter for sigmas ("Tau")
+    double crossover_rate   = 0.0;
+
+    double range_min      = -5.11;    // Min value of each gene
+    double range_max      = 5.12;     // Min value of each gene
+
+    // This parameter keeps any sigma from getting so close to 0 that there's effectively no mutation
+    double sigma_min      = 0.001;
+
+    // ------- Test Parameters -------
+
+    int generation_count    = 1000;     // Max # of generational cycles
+    double optimum_fitness  = -0.001;
+    int run_count           = 100;
+
+    double mutation_min     = 0.2;
+    double mutation_max     = 0.6;
+    double sigma_ctrl_min   = 0.001;
+    double sigma_ctrl_max   = 0.02;
+    double crossover_min    = 0.0;
+    double crossover_max    = 0.4;
+    int step_count          = 5;        // Number of values tested for each parameter INCLUDING end points
+
+    // -------
     
     RNG *random_number_generator;
 	population_t POPULATION,POPULATION2;
-	int generation_count;
-    int converge_count;
+	int generation;
+    double generation_avg = 0.0;    // Stores running sum of generations to reach optimum (or not) for avg calculation
+    double champ_avg = 0.0;         // ^^^ Same for best fitness
+    double champ_stddev = 0.0;
+    FILE *csv;
 
     // allocate memory for array to hold running test metrics:
     // max fitness, avg fitness, diversity score, champ x, champ y (for generation n and n-1)
@@ -460,50 +509,100 @@ int main() {
 	random_number_generator = rng_create();
 	
 	// allocate memory for populations with defined sizes
-	ES_Population_Malloc(&POPULATION, MU_SIZE, GENOME_LEN*2);  // primary population (GENOME_LEN doubled to account for sigmas)
-	ES_Population_Malloc(&POPULATION2, MU_SIZE, GENOME_LEN*2); // "scratch" population 
+	ES_Population_Malloc(&POPULATION, mu_size, genome_len*2);  // primary population (GENOME_LEN doubled to account for sigmas)
+	ES_Population_Malloc(&POPULATION2, mu_size, genome_len*2); // "scratch" population 
 	
-	// initialize/randomize population, calculate initial fitness and metrics
-	ES_Population_Init(&POPULATION,random_number_generator);
-	
-    // ES_Population_Compute_Fitness(&POPULATION);
-    // ES_Population_Metrics(&POPULATION, metrics);
-	// // printf("Initial Population\n");
-	// ES_Population_Print(&POPULATION);
+    for (mutation_rate = mutation_min; mutation_rate < (mutation_max*1.0001); mutation_rate += ((mutation_max - mutation_min)/(double)(step_count-1))) {
+        printf("[mutation_rate = %f]\n", mutation_rate);
 
-	// generation evolutionary loop
-	for (generation_count = 0; generation_count < GENERATION_COUNT; generation_count++) {
-        // Evaluate Everyone in the population
-        ES_Population_Compute_Fitness(&POPULATION);
+        for (crossover_rate = crossover_min; crossover_rate < (crossover_max*1.0001); crossover_rate += ((crossover_max - crossover_min)/(double)(step_count-1))) {
+            printf("\t\t[crossover_rate = %f]\n", crossover_rate);
 
-        // Calculate and print metrics - fitness score of champ, avg fitness score, % identical genomes
-        ES_Population_Metrics(&POPULATION, metrics);
-        printf("Himmelblau ES %d %d %f %f %d %d %f %f %f\n", MU_SIZE, LAMBDA_SIZE, MUTATION_RATE, CROSSOVER_RATE,
-                                                              generation_count, generation_count*(MU_SIZE+LAMBDA_SIZE), 
-                                                              metrics[0], metrics[1], metrics[2]);
-        
-        // ES_Population_Print(&POPULATION);
+            for (sigma_min = sigma_ctrl_min; sigma_min < (sigma_ctrl_max*1.0001); sigma_min += ((sigma_ctrl_max - sigma_ctrl_min)/(double)(step_count-1))) {
+                printf("\t\t\t[sigma_min = %f]\n", sigma_min);
 
-        // // Check for convergence - near-optimal solution
-        // if (metrics[0] > -0.000001) break;
-        
-        // Make the new generation
-        ES_Population_Make_New_Generation(&POPULATION, &POPULATION2, MUTATION_RATE, CROSSOVER_RATE, metrics, random_number_generator);
-        // Copy the new population back into the primary population
-        ES_Population_Copy(&POPULATION2, &POPULATION);
+                generation_avg = 0.0;
+                champ_stddev = 0.0;
+                champ_avg = 0.0;
+
+                for (int i = 0; i < run_count; i++) {
+                    // initialize/randomize population, calculate initial fitness and metrics
+                    ES_Population_Init(&POPULATION, range_min, range_max, mutation_rate, random_number_generator);
+                    
+                    // ES_Population_Compute_Fitness(&POPULATION);
+                    // ES_Population_Metrics(&POPULATION, metrics);
+                    // // printf("Initial Population\n");
+                    // ES_Population_Print(&POPULATION);
+
+                    // generation evolutionary loop
+                    for (generation = 0; generation < generation_count; generation++) {
+                        // Evaluate Everyone in the population
+                        ES_Population_Compute_Fitness(&POPULATION);
+
+                        // Calculate and print metrics - fitness score of champ, avg fitness score, % identical genomes
+                        ES_Population_Metrics(&POPULATION, metrics);
+                        // printf("Rosenbrock ES %d %d %f %f %d %d %f %f %f\n", mu_size, lambda_size, mutation_rate, crossover_rate,
+                        //                                                     generation, generation*(mu_size+lambda_size), 
+                        //                                                     metrics[0], metrics[1], metrics[2]);
+                        
+                        // ES_Population_Print(&POPULATION);
+
+                        // // Check for convergence - near-optimal solution
+                        // if (metrics[0] > -0.000001) break;
+                        
+                        // Make the new generation
+                        ES_Population_Make_New_Generation(  &POPULATION,
+                                                            &POPULATION2, 
+                                                            genome_len, 
+                                                            mutation_rate, 
+                                                            crossover_rate, 
+                                                            mu_size,
+                                                            lambda_size,
+                                                            range_min,
+                                                            range_max,
+                                                            sigma_min,
+                                                            metrics, 
+                                                            random_number_generator);
+                        // Copy the new population back into the primary population
+                        ES_Population_Copy(&POPULATION2, &POPULATION);
+                    }
+
+                    if (generation == generation_count) {
+                        // Calculate and print metrics for final generation if no convergence
+                        ES_Population_Compute_Fitness(&POPULATION);
+                        ES_Population_Metrics(&POPULATION, metrics);
+                        // printf("Rosenbrock ES %d %d %f %f %d %d %f %f %f\n", mu_size, lambda_size, mutation_rate, crossover_rate,
+                        //                                                     generation_count, generation_count*(mu_size+lambda_size), 
+                        //                                                     metrics[0], metrics[1], metrics[2]);
+                    }
+                    
+                    // printf("\n");	
+
+                    generation_avg += generation;
+                    champ_stddev += pow(metrics[0], 2.0);
+                    champ_avg += metrics[0];
+
+                    printf("\t\t\t[%f, %f]: %f; gen avg = %f\n", metrics[3], metrics[4], metrics[0], metrics[1]);
+                }
+
+                generation_avg /= run_count;
+                champ_avg /= run_count;
+                champ_stddev = sqrt((champ_stddev / (double)run_count) - pow(champ_avg, 2.0));
+
+                csv = fopen("es_results.csv", "a");
+
+                if (csv == NULL) {
+                    printf("Error opening sga_results.csv");
+                    exit(1);
+                }
+                fflush(csv);
+                fprintf(csv, "%f, %f, %f, %f, %f, %f\n", generation_avg, mutation_rate, crossover_rate, sigma_min, champ_avg, champ_stddev);
+                fclose(csv);
+            
+            }
+        }
     }
 
-    if (generation_count == GENERATION_COUNT) {
-        // Calculate and print metrics for final generation if no convergence
-        ES_Population_Compute_Fitness(&POPULATION);
-        ES_Population_Metrics(&POPULATION, metrics);
-        printf("\nHimmelblau ES %d %d %f %f %d %d %f %f %f\n", MU_SIZE, LAMBDA_SIZE, MUTATION_RATE, CROSSOVER_RATE,
-                                                                generation_count, generation_count*(MU_SIZE+LAMBDA_SIZE),
-                                                                metrics[0], metrics[1], metrics[2]);
-    }
-		
-    printf("\n");	
-	
 	// printf("Final Population\n");
     // ES_Population_Print(&POPULATION); 
 	

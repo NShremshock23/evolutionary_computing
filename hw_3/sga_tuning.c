@@ -564,7 +564,7 @@ int main() {
     double range_max        = 5.11;
 
 
-    // ------- (TODO) Test Parameters -------
+    // ------- Test Parameters -------
 
     int generation_count    = 500;
     double optimum_fitness  = -0.001;
@@ -646,6 +646,7 @@ int main() {
                             // mutation_ctrl defines the minimum value of mutation_mod
                             mutation_mod = ((double)generation_count - (double)generation*(1.0 - mutation_ctrl)) / (double)generation_count;
 
+                            // This defines the power that each (scaled) fitness is raised to, 
                             selection_pwr = 1 + floor(selection_max * (double)generation / (double)generation_count);
 
                             // Make the new generation
